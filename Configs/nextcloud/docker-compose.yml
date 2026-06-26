@@ -1,0 +1,24 @@
+# Arquivo de provisionamento da Stack Nextcloud + MariaDB
+# Rodando dentro do ambiente isolado do Docker no CT 101
+
+version: '3'
+
+services:
+  db:
+    image: mariadb:10.6
+    restart: always
+    command: --transaction-isolation=READ-COMMITTED --log-bin=binlog --binlog-format=ROW
+    volumes:
+      - /mnt/hd4tb/nextcloud_db:/var/lib/mysql
+    environment:
+      - MYSQL_ROOT_PASSWORD=sua_senha_segura_aqui
+
+  app:
+    image: nextcloud:latest
+    restart: always
+    ports:
+      - 80:80
+    links:
+      - db
+    volumes:
+      - /mnt/hd4tb/nextcloud_dados:/var/www/html

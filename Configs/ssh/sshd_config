@@ -1,0 +1,10 @@
+# Parâmetros aplicados para Hardening do protocolo SSH
+# Caminho original no servidor: /etc/ssh/sshd_config
+
+Port 22
+PermitRootLogin yes
+PubkeyAuthentication yes
+
+# Desativação completa de autenticação interativa por senhas tradicionais
+PasswordAuthentication no
+KbdInteractiveAuthentication no
