@@ -40,6 +40,15 @@ Como o orçamento estava curto para começar o laboratório, garimpei peças usa
 * **Gerenciamento do HD de 4TB:** Ao invés de criar partições rígidas no HD para cada serviço, preferi criar pastas dentro dele e apontá-las direto para os containers usando volumes do Linux. Dessa forma, as aplicações compartilham o espaço livre do disco de forma dinâmica, evitando que falte espaço em uma partição enquanto sobra em outra.
 * **Controle de Acesso:** Configurei contas separadas para mim e para a minha esposa usarmos no dia a dia. Nenhum desses perfis tem permissão de administrador, o que protege o sistema caso um dos celulares seja comprometido.
 
+### 3.3 Servidor Web e Proxy Reverso (Nginx Proxy Manager)
+* **O que é e para que serve:** O Nginx Proxy Manager (NPM) foi implementado como o cérebro de rotas da minha infraestrutura web. A sua principal finalidade é atuar como um *Proxy Reverso*, interceptando todas as requisições que chegam à rede local e direcionando-as inteligentemente para os seus respectivos containers com base no subdomínio digitado (ex: encaminhar a URL do Nextcloud para o container correto sem expor portas bagunçadas).
+* **Otimização de Recursos e Rede (`nginx.conf`):** Para garantir o máximo desempenho e estabilidade do proxy dentro do ambiente virtualizado, apliquei parametrizações customizadas no arquivo de configuração principal (`nginx.conf`). Ajustei os limites de conexões simultâneas por processo (`worker_connections`) e o mapeamento de buffers de rede para suportar picos de requisições e downloads pesados na nuvem privada sem estourar a memória RAM do container.
+* **Gerenciamento de Certificados:** Configuração do módulo Let's Encrypt integrado com a API do DuckDNS através do **Desafio DNS (DNS Challenge)**. Isso permite que o NPM automatize a emissão e a renovação de certificados SSL válidos (`HTTPS`) para os serviços internos, garantindo tráfego criptografado e seguro dentro do Homelab.
+
+### 3.4 Servidor de Git Privado (Gitea + Docker)
+* **Finalidade:** Instalação e provisionamento do **Gitea** rodando via Docker dentro de um container dedicado. O objetivo principal deste serviço é centralizar, versionar e organizar localmente todos os meus códigos e repositórios da faculdade (ADS) e projetos pessoais.
+* **Vantagens:** Garante total privacidade dos códigos-fonte dentro da minha própria infraestrutura residencial, funcionando de forma leve, rápida e com consumo mínimo de hardware, simulando o ambiente de trabalho de plataformas como GitHub e GitLab.
+
 ---
 
 ## 🛡️ Fase 4: Segurança e Blindagem do Servidor
@@ -77,6 +86,40 @@ Para podermos acessar o Nextcloud na rua (pelo 5G) ou em viagens para fazer back
 
 * **Como resolvi:** Containers LXC comuns não têm permissão para criar placas de rede virtuais diretamente no Kernel do sistema. Para resolver, acessei o terminal principal do Proxmox, abri o arquivo de configuração do container (`/etc/pve/lxc/101.conf`) e adicionei linhas dando permissão explícita de leitura e escrita para o dispositivo `/dev/net/tun`.
 
+### 3. Erro de Certificado Inválido (HTTPS) no Painel do Proxmox VE
+* **O que aconteceu:** Ao tentar acessar a interface de gerenciamento do Proxmox através do navegador, o sistema exibia um aviso crítico de privacidade (`NET::ERR_CERT_COMMON_NAME_INVALID`), apontando que a conexão não era particular.
+
+![Aviso de privacidade e certificado inválido no Proxmox](Docs/Images/pve-http.jpeg)
+
+* **A Causa:** Por padrão, o Proxmox gera um certificado autoassinado (Self-Signed) durante a instalação básica. Como esse certificado não é emitido por uma Autoridade Certificadora (CA) confiável de internet, os navegadores modernos bloqueiam o acesso direto por segurança.
+* **Como resolvi:** 1. No painel do **Pi-hole** (menu *Local DNS -> DNS Records*), criei uma entrada de DNS local apontando o subdomínio correspondente de forma absoluta diretamente para o IP estático mapeado do Proxmox.
+  
+  ![Configuração do registro de DNS local dentro do painel do Pi-hole](Docs/Images/pihole.jpeg)
+  
+ 2. Para o Proxmox VE, a validação foi feita de forma nativa utilizando a ferramenta de automação ACME integrada ao próprio painel do hipervisor, gerando um certificado Let's Encrypt válido e desvinculado de proxies externos. Já para os demais containers da infraestrutura, implementei o **Nginx Proxy Manager** como um ponto central da infraestrutura. Ele intercepta as requisições dos subdomínios e injeta certificados válidos gerados via Let's Encrypt (DNS Challenge com DuckDNS). Com isso, conseguimos acessar todos os containers via web através de subdomínios dedicados, com criptografia ativa e sem nenhum erro de segurança.
+
+---
+
+### 4. Erro Interno (Internal Error) na Geração de SSL do Nginx Proxy Manager
+* **O que aconteceu:** Ao tentar configurar o Proxy Host para o painel administrativo do próprio Nginx Proxy Manager utilizando o desafio DNS para emitir um certificado inédito, a interface gráfica da aplicação travava e retornava uma mensagem genérica de "Internal Error".
+
+![Mensagem de Erro Interno na interface do NPM](Docs/Images/nginx_internal_error.jpeg)
+
+* **A Causa:** O NPM gera um conflito de loopback e escuta ao tentar requisitar, validar via DNS e aplicar uma regra de proxy e um novo certificado criptográfico na sua própria porta de gerência administrativa de forma simultânea.
+* **Como resolvi:** Em vez de realizar o processo diretamente pela aba de criação do Proxy Host, contornei o problema isolando as etapas: acessei primeiramente a aba superior **SSL Certificates**, criei e emiti o certificado Let's Encrypt de forma independente através do DNS Challenge. Com o certificado gerado com sucesso e listado no sistema, retornei ao menu de *Proxy Hosts* e apenas associei o certificado existente à regra do subdomínio, eliminando o looping e salvando a configuração imediatamente.
+
+---
+
+### 5. Instabilidade de Carregamento e Time Out no Navegador (Cache Zumbi)
+* **O que aconteceu:** Logo após reconfigurar as tabelas de rotas e amarrar o certificado correto, o navegador passou a retornar um erro de tempo limite esgotado (`ERR_CONNECTION_TIMED_OUT`) na porta `8006`, recusando-se a abrir a página.
+
+![Erro de Time Out no navegador ao tentar carregar a interface](Docs/Images/cache.jpeg)
+
+* **A Causa:** O cache de DNS local da máquina cliente (Windows) continuava guardando a rota antiga ou tentando forçar uma requisição anterior sem o redirecionamento correto em background.
+* **Como resolvi:** Abri o Prompt de Comando (CMD) como Administrador e executei o comando de limpeza de cache de rede:
+  ```cmd
+  ipconfig /flushdns
+
 ---
 
 
@@ -84,7 +127,7 @@ Para podermos acessar o Nextcloud na rua (pelo 5G) ou em viagens para fazer back
 
 ### 💻 Laboratório de Desenvolvimento de Software (ADS)
 - [ ] **Ambientes Isolados:** Instalar o servidor web Nginx e bancos de dados (PostgreSQL/MariaDB) para hospedar meus projetos de programação, separando tudo em ambientes de Desenvolvimento, Teste e Produção.
-- [ ] **Git Privado:** Instalar o Gitea para gerenciar, versionar e organizar localmente os códigos das matérias da faculdade e projetos pessoais.
+- [x] **Git Privado:** Instalar o Gitea para gerenciar, versionar e organizar localmente os códigos das matérias da faculdade e projetos pessoais.
 
 ### 📊 Observabilidade e Continuidade (Backups)
 - [ ] **Monitoramento:** Configurar Prometheus e Grafana para criar painéis (dashboards) visuais e acompanhar o uso de memória RAM, processador e rede do servidor.

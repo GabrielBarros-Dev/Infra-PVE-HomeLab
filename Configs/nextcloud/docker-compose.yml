@@ -1,5 +1,5 @@
 # Arquivo de provisionamento da Stack Nextcloud + MariaDB
-# Rodando dentro do ambiente isolado do Docker no CT 101
+# Rodando dentro do ambiente isolado do Docker no CT NextCloud
 
 version: '3'
 
